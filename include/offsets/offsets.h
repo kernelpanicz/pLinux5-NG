@@ -78,7 +78,6 @@ typedef struct _offset_list {
   uint64_t GAD_DBREG_RESUME;
 } offset_list;
 
-extern offset_list off_0300;
 extern offset_list off_0310;
 extern offset_list off_0320;
 extern offset_list off_0321;
