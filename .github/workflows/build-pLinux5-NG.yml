@@ -1,3 +1,4 @@
+
 name: Build pLinux5-NG
 
 on:
@@ -29,19 +30,23 @@ jobs:
             sed -n 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
               source/manifest/manifest.c | head -n1
           )"
+
           if [ -z "$version" ]; then
-            echo "could not read .version from source/manifest/manifest.c" >&2
+            echo "Could not read .version from source/manifest/manifest.c" >&2
             exit 1
           fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "manifest version: $version"
+          echo "Manifest version: $version"
 
       - name: Install dependencies
         run: |
           sudo apt-get update
+
           wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
           chmod +x /tmp/llvm.sh
           sudo /tmp/llvm.sh 21
+
           sudo apt-get install -y \
             clang-21 \
             lld-21 \
@@ -54,10 +59,7 @@ jobs:
             unzip \
             ca-certificates
 
-          # The pLabs5 llvm-config shim (--bindir) resolves the unversioned
-          # llvm tools it wants to symlink (ld.lld, llvm-ar, ...) from PATH.
-          # apt only installs the -21-suffixed ones, so expose the versioned
-          # bindir which contains the unversioned names too.
+          # Expose unversioned LLVM tools to the pLabs5 llvm-config shim.
           echo "/usr/lib/llvm-21/bin" >> "$GITHUB_PATH"
 
       - name: Download PS5 Payload SDK
@@ -79,17 +81,68 @@ jobs:
           repository: pLabs5/pLabs5-SDK
           path: pLabs5-SDK
 
-      - name: Build pLinux5-NG
+      - name: Diagnose offsets header
         run: |
-          make clean
-          make -j"$(nproc)"
+          set -eu
+
+          echo "===== Repository ====="
+          echo "Commit: $(git rev-parse HEAD)"
+          echo "Branch/ref: ${GITHUB_REF}"
+          echo "Workspace: ${GITHUB_WORKSPACE}"
+          echo
+
+          echo "===== All offsets.h files ====="
+          find . -type f -name offsets.h -print
+          echo
+
+          echo "===== Tracked offsets.h files ====="
+          git ls-files '*offsets.h'
+          echo
+
+          echo "===== Expected declarations in include/offsets/offsets.h ====="
+          grep -nE \
+            'HV_MP_STARTUP_CALL|MP_STARTUP_INIT_VECTOR|DATA_CAVE|HV_EFI_MAP_ROOT|GAD_STORE_RCX_R8_RET|GAD_STORE_RCX_R8' \
+            include/offsets/offsets.h || true
+          echo
+
+          echo "===== Structure definition ====="
+          grep -n -A 85 'typedef struct _offset_list' \
+            include/offsets/offsets.h || true
+          echo
+
+          echo "===== Working tree status ====="
+          git status --short
+          echo
+
+          echo "===== Header checksum ====="
+          sha256sum include/offsets/offsets.h
+
+      - name: Install/build configuration check
+        run: |
+          echo "===== Makefile compiler configuration ====="
+          grep -nE \
+            'prospero-clang|LLVM_CONFIG|CPPFLAGS|CFLAGS|INCLUDES|offsets.h' \
+            Makefile || true
+
+          echo
+          echo "===== Compiler version ====="
+          /opt/ps5-payload-sdk/bin/prospero-clang --version
 
         env:
           PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
           LLVM_CONFIG: ${{ github.workspace }}/pLabs5-SDK/tools/nixos/llvm-config
 
+      - name: Build pLinux5-NG
+        run: |
+          make clean
+          make -j"$(nproc)"
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+          LLVM_CONFIG: ${{ github.workspace }}/pLabs5-SDK/tools/nixos/llvm-config
+
       - name: Generate checksum
-        run: sha256sum bin/pLinux5-NG.elf > bin/pLinux5-NG.elf.sha256
+        run: |
+          sha256sum bin/pLinux5-NG.elf > bin/pLinux5-NG.elf.sha256
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v5
@@ -114,8 +167,9 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           manifest="${{ needs.build.outputs.version }}"
+
           if [ "$tag" != "$manifest" ]; then
-            echo "tag v$tag does not match manifest version $manifest" >&2
+            echo "Tag v$tag does not match manifest version $manifest" >&2
             exit 1
           fi
 
