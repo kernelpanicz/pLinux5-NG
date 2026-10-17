@@ -1,4 +1,4 @@
-#include "../../../include/offsets.h"
+#include "offsets.h"
 
 struct _offset_list offsets_1360 = {
     .FW_VERSION = 0x1360,
